@@ -172,7 +172,7 @@ for idx, job in enumerate(jobs, start=1):
         response = requests.post(
             "http://127.0.0.1:11434/api/chat",
             json={
-                "model": "qwen3:14b",
+                "model": "qwen3.5:9b",
                 "messages": [
                     {"role": "system", "content": SYSTEM_RULE},
                     {"role": "user", "content": prompt}
@@ -184,7 +184,7 @@ for idx, job in enumerate(jobs, start=1):
                 },
                 "stream": False
             },
-            timeout=300
+            timeout=1000
         )
         response.raise_for_status()
 
