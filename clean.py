@@ -116,7 +116,7 @@ def safe_json(v):
 
 def infer_job_level(text):
     text = text or ""
-    if re.search(r'应届|无经验|1年', text):
+    if re.search(r'应届|实习|无经验|1年', text):
         return "低"
     if re.search(r'2年|3年|4年|5年', text):
         return "中"
@@ -128,22 +128,26 @@ def extract_first_json_object(s: str) -> str:
     s = (s or "").strip()
     if not s:
         raise ValueError("empty response text")
+
     s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s*```$", "", s)
 
     start = s.find("{")
     if start < 0:
-        raise ValueError("no '{' found")
+        raise ValueError("no '{' found in response")
 
-    depth, end = 0, -1
+    depth = 0
+    end = -1
     for i in range(start, len(s)):
-        if s[i] == "{":
+        ch = s[i]
+        if ch == "{":
             depth += 1
-        elif s[i] == "}":
+        elif ch == "}":
             depth -= 1
             if depth == 0:
                 end = i
                 break
+
     if end < 0:
         raise ValueError("no complete JSON object found")
     return s[start:end + 1]
@@ -205,6 +209,8 @@ def call_llm(job):
         data["certificates"] = normalize_list(data.get("certificates"))
         data["soft_skills"] = [x for x in normalize_list(data.get("soft_skills")) if x in SOFT_SKILL_WHITELIST]
         data["job_tasks"] = normalize_list(data.get("job_tasks"))
+        data["domain_tags"] = normalize_list(data.get("domain_tags"))
+        data["open_knowledge"] = normalize_list(data.get("open_knowledge"))
 
         return {"id": job["id"], "title": job["title"], "ok": True, "data": data}
     except Exception as e:
@@ -240,6 +246,8 @@ def main():
        OR experience_years IS NULL
        OR soft_skills IS NULL
        OR job_tasks IS NULL
+       OR domain_tags IS NULL
+       OR open_knowledge IS NULL
     ORDER BY id ASC
     """)
     jobs = cursor.fetchall()
@@ -281,7 +289,9 @@ def main():
                         education_level=%s,
                         experience_years=%s,
                         soft_skills=%s,
-                        job_tasks=%s
+                        job_tasks=%s,
+                        domain_tags=%s,
+                        open_knowledge=%s
                     WHERE id = %s
                     """, (
                         d.get("career_dir"),
@@ -292,6 +302,8 @@ def main():
                         d.get("experience_years"),
                         safe_json(d.get("soft_skills")),
                         safe_json(d.get("job_tasks")),
+                        safe_json(d.get("domain_tags")),
+                        safe_json(d.get("open_knowledge")),
                         res["id"]
                     ))
                     conn.commit()

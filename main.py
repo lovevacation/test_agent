@@ -110,11 +110,9 @@ CREATE TABLE IF NOT EXISTS job_position (
     company_intro TEXT,
     source_url    TEXT,
     update_date   VARCHAR(50),
-
     career_dir       VARCHAR(100),
     job_level        VARCHAR(200),
     skills           TEXT,
-    tools            TEXT,
     certificates     TEXT,
     education_level  VARCHAR(50),
     experience_years VARCHAR(50),
@@ -141,7 +139,7 @@ INSERT INTO job_position
    company, industry, company_size, company_type,
    description, company_intro, source_url, update_date,
    career_dir, job_level,
-   skills, tools, certificates,
+   skills, certificates,
    education_level, experience_years,
    soft_skills, job_tasks,
    domain_tags, open_knowledge)
@@ -151,7 +149,7 @@ VALUES
    %(company)s, %(industry)s, %(company_size)s, %(company_type)s,
    %(description)s, %(company_intro)s, %(source_url)s, %(update_date)s,
    %(career_dir)s, %(job_level)s,
-   %(skills)s, %(tools)s, %(certificates)s,
+   %(skills)s, %(certificates)s,
    %(education_level)s, %(experience_years)s,
    %(soft_skills)s, %(job_tasks)s,
    %(domain_tags)s, %(open_knowledge)s)
@@ -205,7 +203,6 @@ def write_to_db(records: list[dict]):
                     "career_dir": None,
                     "job_level": None,
                     "skills": None,
-                    "tools": None,
                     "certificates": None,
                     "education_level": None,
                     "experience_years": None,
