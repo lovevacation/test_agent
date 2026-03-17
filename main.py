@@ -110,18 +110,30 @@ CREATE TABLE IF NOT EXISTS job_position (
     company_intro TEXT,
     source_url    TEXT,
     update_date   VARCHAR(50),
-    career_dir      VARCHAR(100),
-    job_level       VARCHAR(200),
-    skills          TEXT,
-    tools           TEXT,
-    certificates    TEXT,
-    education_level VARCHAR(50),
+
+    career_dir       VARCHAR(100),
+    job_level        VARCHAR(200),
+    skills           TEXT,
+    tools            TEXT,
+    certificates     TEXT,
+    education_level  VARCHAR(50),
     experience_years VARCHAR(50),
-    soft_skills     TEXT,
-    job_tasks       TEXT,
+    soft_skills      TEXT,
+    job_tasks        TEXT,
+
+    -- 新增：分领域提取
+    domain_tags      TEXT,
+    open_knowledge   TEXT,
+
     created_at    TIMESTAMP DEFAULT NOW()
 );
 """
+
+# 兼容旧表：若已存在则补列
+ALTER_TABLE_SQLS = [
+    "ALTER TABLE job_position ADD COLUMN IF NOT EXISTS domain_tags TEXT;",
+    "ALTER TABLE job_position ADD COLUMN IF NOT EXISTS open_knowledge TEXT;",
+]
 
 INSERT_SQL = """
 INSERT INTO job_position
@@ -131,7 +143,8 @@ INSERT INTO job_position
    career_dir, job_level,
    skills, tools, certificates,
    education_level, experience_years,
-   soft_skills, job_tasks)
+   soft_skills, job_tasks,
+   domain_tags, open_knowledge)
 VALUES
   (%(job_code)s, %(title)s, %(address)s, %(salary_raw)s,
    %(salary_min)s, %(salary_max)s,
@@ -140,7 +153,8 @@ VALUES
    %(career_dir)s, %(job_level)s,
    %(skills)s, %(tools)s, %(certificates)s,
    %(education_level)s, %(experience_years)s,
-   %(soft_skills)s, %(job_tasks)s)
+   %(soft_skills)s, %(job_tasks)s,
+   %(domain_tags)s, %(open_knowledge)s)
 """
 
 CHECK_SQL = """
@@ -157,14 +171,6 @@ def get_field(record: dict, variants: list[str]) -> str:
             return str(record[name]).strip()
     return ""
 
-def get_source_url(record: dict) -> str:
-    # 优先“岗位来源地址”，再兼容常见同义列
-    candidates = [
-        "岗位来源地址", "岗位来源链接", "岗位URL", "岗位链接",
-        "岗位来源", "来源地址", "来源链接", "URL", "url"
-    ]
-    return get_field(record, candidates)
-
 # ── 写入数据库 ────────────────────────────────────────
 def write_to_db(records: list[dict]):
     conn = get_db()
@@ -173,10 +179,12 @@ def write_to_db(records: list[dict]):
     try:
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
+            for sql in ALTER_TABLE_SQLS:
+                cur.execute(sql)
             conn.commit()
+
             for r in records:
                 s_min, s_max = parse_salary(r.get("薪资范围", ""))
-                source_url = get_source_url(r)
                 data = {
                     "job_code": str(r.get("岗位编码") or "").strip(),
                     "title": str(r.get("岗位名称") or "").strip(),
@@ -190,8 +198,10 @@ def write_to_db(records: list[dict]):
                     "company_type": str(r.get("公司类型") or "").strip(),
                     "description": str(r.get("岗位详情") or "").strip(),
                     "company_intro": str(r.get("公司详情") or "").strip(),
-                    "source_url": source_url,
+                    "source_url": get_field(r, ["岗位来源地址", "岗位来源", "来源地址", "来源链接"]),
                     "update_date": str(r.get("更新日期") or "").strip(),
+
+                    # AI字段置空（后续 clean.py 填充）
                     "career_dir": None,
                     "job_level": None,
                     "skills": None,
@@ -200,7 +210,9 @@ def write_to_db(records: list[dict]):
                     "education_level": None,
                     "experience_years": None,
                     "soft_skills": None,
-                    "job_tasks": None
+                    "job_tasks": None,
+                    "domain_tags": None,
+                    "open_knowledge": None
                 }
 
                 cur.execute(CHECK_SQL, {"job_code": data["job_code"], "title": data["title"]})
@@ -215,9 +227,11 @@ def write_to_db(records: list[dict]):
                     conn.rollback()
                     print(f"写入失败 [{data['job_code']}]: {e}")
                     skip += 1
+
             conn.commit()
     finally:
         conn.close()
+
     print(f"写入完成：成功 {success} 条，跳过 {skip} 条")
 
 # ── 验证 ──────────────────────────────────────────────
@@ -239,6 +253,7 @@ def verify():
             stats = cur.fetchone()
     finally:
         conn.close()
+
     print("\n── 数据验证 ───────────────")
     print("总条数：", total)
     print("有薪资：", stats["has_salary"])
