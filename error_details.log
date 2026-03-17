@@ -1,0 +1,24 @@
+================================================================================
+[2026-03-17 14:29:25] job_id=1, title=前端开发
+reason: ValueError: AI returned empty content
+raw_repr: ''
+raw_text:
+
+================================================================================
+[2026-03-17 14:30:29] job_id=2, title=实施工程师
+reason: ValueError: AI returned empty content
+raw_repr: ''
+raw_text:
+
+================================================================================
+[2026-03-17 14:31:34] job_id=3, title=科研人员
+reason: ValueError: AI returned empty content
+raw_repr: ''
+raw_text:
+
+================================================================================
+[2026-03-17 14:32:37] job_id=4, title=科研人员
+reason: ValueError: AI returned empty content
+raw_repr: ''
+raw_text:
+
