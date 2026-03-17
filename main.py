@@ -153,9 +153,17 @@ LIMIT 1
 # ── 获取字段值（兼容不同列名） ─────────────────────────
 def get_field(record: dict, variants: list[str]) -> str:
     for name in variants:
-        if name in record and record[name]:
+        if name in record and str(record[name]).strip():
             return str(record[name]).strip()
     return ""
+
+def get_source_url(record: dict) -> str:
+    # 优先“岗位来源地址”，再兼容常见同义列
+    candidates = [
+        "岗位来源地址", "岗位来源链接", "岗位URL", "岗位链接",
+        "岗位来源", "来源地址", "来源链接", "URL", "url"
+    ]
+    return get_field(record, candidates)
 
 # ── 写入数据库 ────────────────────────────────────────
 def write_to_db(records: list[dict]):
@@ -168,6 +176,7 @@ def write_to_db(records: list[dict]):
             conn.commit()
             for r in records:
                 s_min, s_max = parse_salary(r.get("薪资范围", ""))
+                source_url = get_source_url(r)
                 data = {
                     "job_code": str(r.get("岗位编码") or "").strip(),
                     "title": str(r.get("岗位名称") or "").strip(),
@@ -181,9 +190,8 @@ def write_to_db(records: list[dict]):
                     "company_type": str(r.get("公司类型") or "").strip(),
                     "description": str(r.get("岗位详情") or "").strip(),
                     "company_intro": str(r.get("公司详情") or "").strip(),
-                    "source_url": get_field(r, ["岗位来源地址", "岗位来源", "来源地址"]),
+                    "source_url": source_url,
                     "update_date": str(r.get("更新日期") or "").strip(),
-                    # AI字段置空
                     "career_dir": None,
                     "job_level": None,
                     "skills": None,
@@ -194,10 +202,12 @@ def write_to_db(records: list[dict]):
                     "soft_skills": None,
                     "job_tasks": None
                 }
+
                 cur.execute(CHECK_SQL, {"job_code": data["job_code"], "title": data["title"]})
                 if cur.fetchone():
                     skip += 1
                     continue
+
                 try:
                     cur.execute(INSERT_SQL, data)
                     success += 1
@@ -222,7 +232,8 @@ def verify():
                     COUNT(*) AS total,
                     SUM(CASE WHEN salary_min = -1 THEN 1 ELSE 0 END) AS negotiable,
                     SUM(CASE WHEN salary_min = 0 THEN 1 ELSE 0 END) AS unknown,
-                    SUM(CASE WHEN salary_min > 0 THEN 1 ELSE 0 END) AS has_salary
+                    SUM(CASE WHEN salary_min > 0 THEN 1 ELSE 0 END) AS has_salary,
+                    SUM(CASE WHEN source_url IS NOT NULL AND btrim(source_url) <> '' THEN 1 ELSE 0 END) AS has_source_url
                 FROM job_position
             """)
             stats = cur.fetchone()
@@ -233,6 +244,7 @@ def verify():
     print("有薪资：", stats["has_salary"])
     print("面议：", stats["negotiable"])
     print("未知：", stats["unknown"])
+    print("有来源地址：", stats["has_source_url"])
 
 # ── 主程序 ────────────────────────────────────────────
 if __name__ == "__main__":

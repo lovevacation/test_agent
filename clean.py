@@ -22,7 +22,6 @@ FROM job_position
 WHERE career_dir IS NULL
    OR job_level IS NULL
    OR skills IS NULL
-   OR tools IS NULL
    OR certificates IS NULL
    OR education_level IS NULL
    OR experience_years IS NULL
@@ -38,7 +37,8 @@ print(f"待处理岗位总数: {total}")
 failed_ids = []
 
 def safe_json(v):
-    if isinstance(v, list) and len(v) > 0:
+    # 仅 list 类型转 JSON，其他一律 NULL，避免脏结构入库
+    if isinstance(v, list):
         return Json(v, dumps=lambda x: json.dumps(x, ensure_ascii=False))
     return None
 
@@ -57,7 +57,6 @@ def extract_first_json_object(s: str) -> str:
     if not s:
         raise ValueError("empty response text")
 
-    # 去掉 markdown 包裹
     s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s*```$", "", s)
 
@@ -85,31 +84,30 @@ SYSTEM_RULE = """
 你是岗位结构化信息提取助手。
 
 【抽取规则】
-1. 允许基于岗位名称和描述进行【合理推断】（例如根据“前端开发”推断career_dir为“前端”，或推断常识性基础技能），但严禁凭空捏造离谱的内容。若完全没有线索，填 null。
-2. skills 必须是二维数组：
-   - 或关系 → 分不同子数组
-   - 且关系 → 同一子数组
-3. job_level 必须判断：
+1. 允许基于岗位名称和描述进行合理推断，但不得捏造与岗位无关内容。
+2. skills 必须是二维数组，并严格遵循：
+   - 同一子数组内 = OR 关系（会其中一种或多种即可）
+   - 不同子数组之间 = AND 关系（这些子数组共同构成完整技术栈）
+3. job_level 必须判断!!!：
    - 低：应届 / ≤1年
    - 中：2-5年
    - 高：≥5年 / 架构 / 负责人
 4. soft_skills 只能从以下选择：
    ["沟通能力","团队合作能力","问题解决能力","持续学习能力","创新能力","抗压能力","某种语言能力"]
-5. 其它选项含义：
-   career_dir: 职业方向(比如前端、实施等)
-   tools: 岗位要求的工具（比如Docker、Kubernetes等）
-   certificates: 岗位要求的证书（比如PMP、AWS认证等）
-   education_level: 学历要求（比如本科、硕士等）
-   experience_years: 工作经验要求（比如3-5年）
-   job_tasks: 岗位职责（比如设计系统架构、编写代码等）
+5. 字段含义：
+   career_dir: 职业方向
+   certificates: 岗位要求证书
+   education_level: 学历要求
+   experience_years: 工作经验要求
+   job_tasks: 岗位职责
 
-最后必须严格输出且仅输出一个JSON对象，不要在JSON外面写任何解释文本。
+最后必须严格输出且仅输出一个JSON对象，不要在JSON外写任何解释文本。
+
 【输出格式】
 {
   "career_dir": null,
   "job_level": null,
   "skills": [],
-  "tools": null,
   "certificates": null,
   "education_level": null,
   "experience_years": null,
@@ -128,7 +126,6 @@ for idx, job in enumerate(jobs, start=1):
     user_text = f"""岗位名称: {job['title']}
 岗位描述: {job['description']}"""
 
-    # 用 /api/generate，避免 chat 的 thinking 干扰
     prompt = f"""{SYSTEM_RULE}
 
 现在开始抽取，直接输出 JSON：
@@ -143,7 +140,6 @@ for idx, job in enumerate(jobs, start=1):
                 "model": "deepseek-r1:8b",
                 "prompt": prompt,
                 "stream": False,
-
                 "options": {
                     "temperature": 0.1,
                 }
@@ -153,19 +149,8 @@ for idx, job in enumerate(jobs, start=1):
         print(f"--- [ID:{job['id']}] HTTP状态码: {resp.status_code}")
         resp.raise_for_status()
 
-        print(f"--- [ID:{job['id']}] HTTP原始响应开始 ---")
-        print(resp.text[:3000])
-        print(f"--- [ID:{job['id']}] HTTP原始响应结束 ---")
-
         j = resp.json()
         raw_text = (j.get("response") or "").strip()
-
-        print(f"--- [ID:{job['id']}] 模型response开始 ---")
-        print(raw_text if raw_text else "<EMPTY>")
-        print(f"--- [ID:{job['id']}] 模型response结束 ---")
-        print(f"--- [ID:{job['id']}] 模型response repr ---")
-        print(repr(raw_text))
-        print()
 
         if not raw_text:
             raise ValueError("model response is empty")
@@ -183,21 +168,31 @@ for idx, job in enumerate(jobs, start=1):
     if not data.get("job_level"):
         data["job_level"] = infer_job_level(job.get("description", ""))
 
-    if isinstance(data.get("skills"), list):
-        fixed = []
-        for item in data["skills"]:
-            if isinstance(item, list):
-                fixed.append(item)
-            elif item is not None:
-                fixed.append([item])
-        data["skills"] = fixed
-    else:
-        data["skills"] = []
+    # 强制 skills 结构：List[List[str]]，子项去空、去重
+    skills = data.get("skills")
+    normalized_skills = []
+    if isinstance(skills, list):
+        for group in skills:
+            if isinstance(group, list):
+                vals = [str(x).strip() for x in group if str(x).strip()]
+                vals = list(dict.fromkeys(vals))
+                if vals:
+                    normalized_skills.append(vals)
+            elif group is not None:
+                v = str(group).strip()
+                if v:
+                    normalized_skills.append([v])
+    data["skills"] = normalized_skills
 
     if not isinstance(data.get("soft_skills"), list):
         data["soft_skills"] = []
+    else:
+        data["soft_skills"] = [str(x).strip() for x in data["soft_skills"] if str(x).strip()]
+
     if not isinstance(data.get("job_tasks"), list):
         data["job_tasks"] = []
+    else:
+        data["job_tasks"] = [str(x).strip() for x in data["job_tasks"] if str(x).strip()]
 
     try:
         cursor.execute("""
@@ -205,7 +200,6 @@ for idx, job in enumerate(jobs, start=1):
         SET career_dir=%s,
             job_level=%s,
             skills=%s,
-            tools=%s,
             certificates=%s,
             education_level=%s,
             experience_years=%s,
@@ -216,7 +210,6 @@ for idx, job in enumerate(jobs, start=1):
             data.get("career_dir"),
             data.get("job_level"),
             safe_json(data.get("skills")),
-            safe_json(data.get("tools")),
             safe_json(data.get("certificates")),
             data.get("education_level"),
             data.get("experience_years"),
